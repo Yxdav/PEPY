@@ -7,7 +7,8 @@ PEPY is a simple program that parses [ Portable Executabl(PE)](https://en.wikipe
 ## Help ##
 -  `python main.py -h`
 
-  
+  ![image](https://github.com/Yxdav/PEPY/assets/127534990/bff1760b-a277-42bd-84e4-65b1561d67c7)
+
 
 
 
