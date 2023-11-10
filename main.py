@@ -515,7 +515,7 @@ if __name__== "__main__":
     parser = argparse.ArgumentParser(formatter_class = argparse.RawTextHelpFormatter,description="A python program that parses PE files", epilog=f"Usage: \n\tpython {FILE_NAME} -f example.exe")
     parser.add_argument("-f", "--file", help="Path to file", dest="file", type=str, required=True)
     parser.add_argument("-d", "--debug", help="Show debug messages", dest="debug", action="store_true")
-    parser.add_argument("-r", "--raw", help="Does not parse values that represent. Only shows raw value", dest="raw", action="store_true")
+    parser.add_argument("-r", "--raw", help="Does not parse values that represent flags/Charavteristics. Only shows raw value", dest="raw", action="store_true")
     
     args = parser.parse_args()
     if args.debug:
