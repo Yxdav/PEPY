@@ -111,6 +111,13 @@ class PECharacteristics(Enum):
     IMAGE_FILE_UP_SYSTEM_ONLY = 0x4000
     IMAGE_FILE_BYTES_REVERSED_HI = 0x8000
 
+class IMAGE_BASE_RELOCATION(ctypes.Structure):
+    _fields_ = [
+        ("VirtualAddress", ctypes.c_uint32),
+        ("SizeOfBlock", ctypes.c_uint32),
+    ]
+
+
 class IMAGE_IMPORT_BY_NAME(ctypes.Structure):
     _fields_ = [
                  ("Hint", ctypes.c_uint16),

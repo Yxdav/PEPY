@@ -157,7 +157,7 @@ class PE_OPTIONAL:
              buffer: bytes: contents of the file at least from the first byte of the file to the last byte of the optional header
              size: int: Size of the optional header which is obtained from the file header, IMAGE_NT_HEADERS64.FileHeader.SizeOfOptionalHeader
 
-             return: IMAGE_OPTIONAL_HEADER64 | IMAGE_OPTIONAL_HEADER32 | None:A object acting as a struct which holds information about the optional header or None on failure   
+             return:A object acting as a struct which holds information about the optional header or None on failure   
         '''
         start:int = int.from_bytes(DOS.header_offset) + ctypes.sizeof(IMAGE_FILE_HEADER) + 4 # Index of start of optional header
         end:int = start + size # index of last byte of optional header + 1
@@ -219,7 +219,7 @@ class PE_OPTIONAL:
             print(f"\t {fname}: {fvalue} ({hex(fvalue)})")
         print()
 
-def nt_print(image_nt_headers:IMAGE_NT_HEADERS64, section_headers:ctypes.Array[IMAGE_SECTION_HEADER], image_import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] , buffer:bytes, is_64bit,raw:bool=False)->None:
+def nt_print(image_nt_headers:IMAGE_NT_HEADERS64, section_headers:ctypes.Array[IMAGE_SECTION_HEADER], image_import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] , buffer:bytes, is_64bit, base_reloc_arr:list[IMAGE_BASE_RELOCATION] | None , raw:bool=False)->None:
     ''' Prints all headers and section 
         
         image_nt_headers: IMAGE_NT_HEADERS64: An object/struct
@@ -236,6 +236,7 @@ def nt_print(image_nt_headers:IMAGE_NT_HEADERS64, section_headers:ctypes.Array[I
     PE_OPTIONAL.print(image_nt_headers, raw)
     SECTION_HEADERS.print(section_headers, raw)
     Imports.print(image_import_desc_arr, buffer, is_64bit)
+    Relocation.print(base_reloc_arr, buffer)
 
 class SECTION_HEADERS:
 
@@ -294,7 +295,7 @@ class Imports:
 
     @staticmethod
     def parse(section_headers:ctypes.Array[IMAGE_SECTION_HEADER], buffer:bytes)-> list[IMAGE_IMPORT_DESCRIPTOR]:
-        ''''''
+
         import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] = []
         import_desc_size:int = ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
         rva:int
@@ -450,8 +451,56 @@ class Imports:
                     start_index +=2 
                     print("\t\t" + f"{(image_import_by_name.Hint)}".ljust(8) + f"{''.join([chr(char) for char in image_import_by_name.Name])}")
                 
+class Relocation:
+    ''' Abstracts parsing of relocation table '''
 
-            
+    # This value is subtracted from
+    # Relative virtual addresses. Rvas are usually relative to the image base
+    # which is only applicable if the file is loadde in memory. However this value
+    # works a little different when the file in on disk.
+    # The actual RVA is obtained by this equation  RVA = RVA - crucial_value
+    crucial_value:int | None = None
+    
+    offset:list[int] = []
+    
+
+
+    @staticmethod
+    def parse(section_headers:ctypes.Array[IMAGE_SECTION_HEADER], buffer:bytes)-> list[IMAGE_BASE_RELOCATION] | None:
+
+        rva:int
+        actual_offset:int
+        reloc_section_size: int
+        base_reloc_arr:list[IMAGE_BASE_RELOCATION] = []
+        for section_header in section_headers:
+            # Retrieve the IMAGE_SECTION_HEADER represent the .idata field
+            if ("".join([chr(char) if char != 0 else ' ' for char in section_header.Name])).strip() == ".reloc":
+                rva = section_header.VirtualAddress
+                __class__.crucial_value = rva - section_header.PointerToRawData
+                actual_offset = rva - __class__.crucial_value # Told you...
+                reloc_section_size = section_header.Misc
+            else:
+                return None
+
+        while True:
+            base_reloc: IMAGE_BASE_RELOCATION = IMAGE_BASE_RELOCATION()
+            ctypes.memmove(ctypes.byref(base_reloc), ctypes.c_char_p(buffer[actual_offset:]), ctypes.sizeof(IMAGE_BASE_RELOCATION))
+            if (base_reloc.VirtualAddress == 0) and (base_reloc.SizeOfBlock == 0):
+                break
+            base_reloc_arr.append(base_reloc)
+            __class__.offset.append(actual_offset)
+            actual_offset += base_reloc.SizeOfBlock
+        return base_reloc_arr
+    
+    @staticmethod
+    def print(base_reloc_arr:list[IMAGE_BASE_RELOCATION] | None, buffer:bytes)->None:
+        if base_reloc_arr is None:
+            return None
+        print("Relocation Table:")
+        print("\t Offset".ljust(15) + "Page RVA".ljust(15) + "Size".ljust(10) + "entries")
+        for index,base_reloc_block in enumerate(base_reloc_arr):
+            print("\t " + f"{hex(__class__.offset[index])}".ljust(15)  + f"{hex(base_reloc_block.VirtualAddress)}".ljust(15) + f"{hex(base_reloc_block.SizeOfBlock)}".ljust(10) + f"{ceil((base_reloc_block.SizeOfBlock-ctypes.sizeof(IMAGE_BASE_RELOCATION))/2)}")
+
 
 def main() -> None:
 
@@ -482,7 +531,6 @@ def main() -> None:
         error("Invalid DOS magic number")
         return
     
-    # A IMAGE_NT_HEADER struct
     # At this point the OptionalHeader Fields is still empty
     nt_file_headers:IMAGE_NT_HEADERS64 | IMAGE_NT_HEADERS32 = PE.parse(file_contents, is_file_64bit)
     
@@ -492,21 +540,19 @@ def main() -> None:
         error("Invalid PE signature")
         return 
     
-    # Returns the optional header which is added to `nt_file_headers`'s OptionalHeader Field
     optional_header:IMAGE_OPTIONAL_HEADER32 |IMAGE_OPTIONAL_HEADER64 = PE_OPTIONAL.parse(file_contents, nt_file_headers.FileHeader.SizeOfOptionalHeader, is_file_64bit)
     nt_file_headers.OptionalHeader = optional_header
 
-    # Returns an array of IMAGE_SECTION_HEADER
     section_headers: ctypes.Array[IMAGE_SECTION_HEADER] = SECTION_HEADERS.parse(nt_file_headers, file_contents)
-    
-    # An array of IMAGE_IMPORT_DESCRIPTOR found in the .idata section
-    # pointed to by the second element in IMAGE_NT_HEADER.DataDirectory
+ 
     import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] = Imports.parse(section_headers, file_contents)
 
+    base_reloc_arr:list[IMAGE_BASE_RELOCATION] = Relocation.parse(section_headers, file_contents)
+
     if args.raw:
-        nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, is_file_64bit ,raw=True)
+        nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, is_file_64bit, base_reloc_arr ,raw=True)
         return
-    nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, is_file_64bit)
+    nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, base_reloc_arr ,is_file_64bit)
    
         
 if __name__== "__main__":
