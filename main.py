@@ -552,7 +552,7 @@ def main() -> None:
     if args.raw:
         nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, is_file_64bit, base_reloc_arr ,raw=True)
         return
-    nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents, base_reloc_arr ,is_file_64bit)
+    nt_print(nt_file_headers, section_headers, import_desc_arr, file_contents ,is_file_64bit, base_reloc_arr)
    
         
 if __name__== "__main__":
