@@ -288,6 +288,8 @@ class Imports:
     # The actual RVA is obtained by this equation  RVA = RVA - crucial_value
     crucial_value:int | None = None
     
+    rva_to_import_descriptor:int|None
+
     # These are used to keep track of the name of libraries imported and their offsets 
     # from the start of the file. RVAs used in this program invariably refer to offset from the beginning of the file and not from the image base
     name_to_index:dict[str, int] = {}  
@@ -304,6 +306,7 @@ class Imports:
             # Retrieve the IMAGE_SECTION_HEADER represent the .idata field
             if ("".join([chr(char) if char != 0 else ' ' for char in section_header.Name])).strip() == ".idata":
                 rva = section_header.VirtualAddress
+                __class__.rva_to_import_descriptor  = rva
                 __class__.crucial_value = rva - section_header.PointerToRawData
                 actual_offset = rva - __class__.crucial_value # Told you...
         
@@ -342,7 +345,7 @@ class Imports:
             bytes_arr.append(char)
         
         # Inshallah you understand this
-        return (f"{' '.join([bin(char)[2:] for char in bytes_arr])} ({' '.join([hex(char) for char in bytes_arr])}) (offset to hint table: {hex(int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)})", int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)
+        return (f"{' '.join([bin(char)[2:] for char in bytes_arr])} ({' '.join([hex(char) for char in bytes_arr])}) (file offset to hint table: {hex(int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)})(RVA: {hex(int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little'))})", int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)
 
     @staticmethod
     def print(import_desc_arr: list[IMAGE_IMPORT_DESCRIPTOR], buffer:bytes, is_64bit:bool)->None:
@@ -358,8 +361,9 @@ class Imports:
         library_name:list[str] = []
         print(" Imports:")
         for import_desc in import_desc_arr:
+            print(f" RVA: {hex(__class__.rva_to_import_descriptor)}")
             actual_offset:int = import_desc.Name - __class__.crucial_value
-            print(f"\t Absolute Offset :{hex(actual_offset)}")
+            print(f"\t File Offset to name :{hex(actual_offset)}(RVA: {hex(import_desc.Name)})")
             print(f"\t Name: ", end="")
             for char in buffer[actual_offset:]:
                 if char:
@@ -372,15 +376,16 @@ class Imports:
                 break
             print()
 
-            print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk - __class__.crucial_value)}")
+            print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)}")
             print(f"\t\t\\______ {__class__.lookup_table_parse(import_desc.OriginalFirstThunk - __class__.crucial_value, buffer, is_64bit)[0]}")
             print(f"\t Time Date Stamp: {import_desc.TimeDateStamp}")
             print(f"\t Forwarder chain: {import_desc.ForwarderChain} ({hex(import_desc.ForwarderChain)})")
-            print(f"\t Import Address Table RVA: {hex(import_desc.FirstThunk - __class__.crucial_value)}")
+            print(f"\t Import Address Table RVA: {hex(import_desc.FirstThunk)}")
             print(f"\t\t\\______ {__class__.lookup_table_parse(import_desc.FirstThunk - __class__.crucial_value, buffer, is_64bit)[0]}")
             print()
             print("-"*100)
             print()
+            __class__.rva_to_import_descriptor += ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
         
         print(" Hint Table: ")
         # The code below simple parses the hint tables pointed by
