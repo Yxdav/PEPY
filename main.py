@@ -323,29 +323,6 @@ class Imports:
             if ((import_desc.OriginalFirstThunk == 0) and (import_desc.TimeDateStamp == 0) and (import_desc.ForwarderChain == 0) and ( import_desc.Name == 0) and (import_desc.FirstThunk == 0)):
                 return import_desc_arr
             import_desc_arr.append(import_desc)
-        
-    @staticmethod
-    def lookup_table_parse(abs_offset:int, buffer:bytes, is_64bit:bool)->tuple[str, int]:
-        size:int
-        ''' Parse the import lookup table
-        
-            abs_offset: int: The actual offset from the beginning of the file
-            buffer: bytes: Teh contents of the file
-            is_64bit: boolean value which indicates whether it the file is 32 or 64 bit executable
-
-            return: A tuple of a string to use as output and the actual integer value of the actual offset
-        '''
-
-        if is_64bit:
-            size = 8
-        else:
-            size = 4
-        bytes_arr:list[int] = []
-        for char in buffer[abs_offset:abs_offset+size]:
-            bytes_arr.append(char)
-        
-        # Inshallah you understand this
-        return (f"{' '.join([bin(char)[2:] for char in bytes_arr])} ({' '.join([hex(char) for char in bytes_arr])}) (file offset to hint table: {hex(int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)})(RVA: {hex(int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little'))})", int.from_bytes(buffer[abs_offset:abs_offset+2], byteorder='little') - __class__.crucial_value)
 
     @staticmethod
     def print(import_desc_arr: list[IMAGE_IMPORT_DESCRIPTOR], buffer:bytes, is_64bit:bool)->None:
@@ -362,7 +339,7 @@ class Imports:
         library_name:list[str] = []
         print(" Imports:")
         for import_desc in import_desc_arr:
-            print(f" RVA: {hex(__class__.rva_to_import_descriptor)}")
+            print(f"\t RVA: {hex(__class__.rva_to_import_descriptor)}")
             actual_offset:int = import_desc.Name - __class__.crucial_value
             print(f"\t File Offset to name :{hex(actual_offset)}(RVA: {hex(import_desc.Name)})")
             print(f"\t Name: ", end="")
@@ -371,91 +348,34 @@ class Imports:
                     print(f"{chr(char)}", end="")
                     library_name.append(chr(char))
                     continue
-                __class__.offset_arr.append(__class__.lookup_table_parse(import_desc.OriginalFirstThunk - __class__.crucial_value, buffer, is_64bit)[1])
-                __class__.name_to_index["".join(library_name)] = __class__.offset_arr.index(__class__.lookup_table_parse(import_desc.OriginalFirstThunk - __class__.crucial_value, buffer, is_64bit)[1]) 
                 library_name = []
                 break
             print()
 
-            print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)}")
-            print(f"\t\t\\______ {__class__.lookup_table_parse(import_desc.OriginalFirstThunk - __class__.crucial_value, buffer, is_64bit)[0]}")
+            print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)} (File offset: {hex(import_desc.OriginalFirstThunk - __class__.crucial_value )})")
             print(f"\t Time Date Stamp: {import_desc.TimeDateStamp}")
             print(f"\t Forwarder chain: {import_desc.ForwarderChain} ({hex(import_desc.ForwarderChain)})")
-            print(f"\t Import Address Table RVA: {hex(import_desc.FirstThunk)}")
-            print(f"\t\t\\______ {__class__.lookup_table_parse(import_desc.FirstThunk - __class__.crucial_value, buffer, is_64bit)[0]}")
+            print(f"\t Import Address Table RVA: {hex(import_desc.FirstThunk)} ({hex(import_desc.ForwarderChain)})")
+            print("\t Imports:")
+            print("\t\t Count".ljust(10) + "Hint".ljust(10)  + "Name")
+            offset_to_thunk_data:int = import_desc.OriginalFirstThunk - __class__.crucial_value
+            count:int = 0
+            while True:
+                thunk_data:IMAGE_THUNK_DATA64 = IMAGE_THUNK_DATA64()
+                ctypes.memmove(ctypes.byref(thunk_data), ctypes.c_char_p(buffer[offset_to_thunk_data:]), ctypes.sizeof(IMAGE_THUNK_DATA64))
+                if thunk_data.u1.AddressOfData == 0:
+                    break
+                import_by_name: IMAGE_IMPORT_BY_NAME = IMAGE_IMPORT_BY_NAME()
+                ctypes.memmove(ctypes.byref(import_by_name), ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData-__class__.crucial_value:]), ctypes.sizeof(WORD))
+                import_by_name.Name = ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData -__class__.crucial_value+ctypes.sizeof(WORD):])
+                print(f"\t\t {count}".ljust(10) + f"{hex(import_by_name.Hint)}".ljust(10) + f"{import_by_name.Name.decode()}")
+                offset_to_thunk_data += ctypes.sizeof(IMAGE_THUNK_DATA64)
+                count += 1
             print()
             print("-"*100)
             print()
             __class__.rva_to_import_descriptor += ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
         
-        print(" Hint Table: ")
-        # The code below simple parses the hint tables pointed by
-        # IMAGE_IMPORT_DESCRIPTOR.OriginalFirstThunk
-        # The length of the simple task is due to the fact that
-        # Each hint table entry does not have a fix size due
-        # to varying lengh of function names
-        # Of course their sizes can be calculated except for the last one
-        # which does not have any other hint table entry after it. Therefore
-        # we cannot its offset to determine the size of the last entry
-        for name, index in __class__.name_to_index.items():
-            try:
-                printed:bool = False
-                hint_table_size:int = __class__.offset_arr[index+1] - __class__.offset_arr[index]
-                hint_table_buffer:bytes = buffer[__class__.offset_arr[index]:__class__.offset_arr[index]+hint_table_size]
-                start_index:int = 0
-                print()
-                print(f"\t {name}: ".ljust(8))
-                print("\t\t" + f"Hint".ljust(8), "Name")
-
-                count:int = 0
-                while start_index < len(hint_table_buffer):
-                    printed = False
-                    char = hint_table_buffer[count]
-                    if not char:
-                        image_import_by_name:IMAGE_IMPORT_BY_NAME = IMAGE_IMPORT_BY_NAME()
-                        hint_number:bytes = hint_table_buffer[start_index:start_index+IMAGE_IMPORT_BY_NAME.Hint.size]
-                        func_name:bytes = hint_table_buffer[start_index+IMAGE_IMPORT_BY_NAME.Hint.size: hint_table_buffer.index(char, start_index+IMAGE_IMPORT_BY_NAME.Hint.size)]
-                        image_import_by_name.Hint = int.from_bytes(hint_number, byteorder="little")
-                        image_import_by_name.Name = ctypes.c_char_p(func_name)
-                        print("\t\t" + f"{image_import_by_name.Hint}".ljust(8) + f"{''.join([chr(char) for char in image_import_by_name.Name])}")
-                        printed = True
-                        start_index = (hint_table_buffer.index(char, start_index+IMAGE_IMPORT_BY_NAME.Hint.size))
-                        if  hint_table_buffer[start_index+1]:
-                            start_index += 1
-                            count += 1
-                            continue
-                        start_index += 2
-                        count += 1
-                        continue
-                    count+=1
-                           
-            except (IndexError,ValueError):
-                if printed:
-                    continue
-                print()
-                start_index:int = 0
-                try:
-                    hint_table_buffer = buffer[__class__.offset_arr[index]:]
-                except IndexError:
-                    break
-                print(f"\t {name}: ".ljust(8))
-                print("\t\t" + f"Hint".ljust(8), "Name")
-                while True:
-                    image_import_by_name:IMAGE_IMPORT_BY_NAME = IMAGE_IMPORT_BY_NAME()
-                    hint_number:bytes = hint_table_buffer[start_index:start_index+IMAGE_IMPORT_BY_NAME.Hint.size]
-                    func_name:bytes = hint_table_buffer[start_index+IMAGE_IMPORT_BY_NAME.Hint.size: hint_table_buffer.index(char, start_index+IMAGE_IMPORT_BY_NAME.Hint.size)+1]
-                    image_import_by_name.Hint = int.from_bytes(hint_number, byteorder="little")
-                    image_import_by_name.Name = ctypes.c_char_p(func_name)
-                    start_index = (hint_table_buffer.index(char, start_index+IMAGE_IMPORT_BY_NAME.Hint.size))
-                    if not "".join([chr(char) for char in image_import_by_name.Name]) :
-                        logging.debug("End of image_by_imports")
-                        break
-                    if  hint_table_buffer[start_index+1]:
-                        start_index += 1
-                        print("\t\t" + f"{(image_import_by_name.Hint)}".ljust(8) + f"{''.join([chr(char) for char in image_import_by_name.Name])}")
-                        continue
-                    start_index +=2 
-                    print("\t\t" + f"{(image_import_by_name.Hint)}".ljust(8) + f"{''.join([chr(char) for char in image_import_by_name.Name])}")
                 
 class Relocation:
     ''' Abstracts parsing of relocation table '''
