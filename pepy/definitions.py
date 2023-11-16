@@ -127,10 +127,24 @@ class _IMAGE_THUNK_DATA64_u1(ctypes.Union):
         ('AddressOfData', ctypes.c_uint64)
     ]
 
+class _IMAGE_THUNK_DATA32_u1(ctypes.Union):
+    _fields_ = [
+        ('ForwarderString', ctypes.c_uint32),
+        ('Function', ctypes.c_uint32),
+        ('Ordinal', ctypes.c_uint32),
+        ('AddressOfData', ctypes.c_uint32)
+    ]
+
 class IMAGE_THUNK_DATA64(ctypes.Structure):
     _anonymous_ = ('u1',)
     _fields_ = [
         ('u1', _IMAGE_THUNK_DATA64_u1)
+    ]
+
+class IMAGE_THUNK_DATA32(ctypes.Structure):
+    _anonymous_ = ('u1',)
+    _fields_ = [
+        ('u1', _IMAGE_THUNK_DATA32_u1)
     ]
 
 class IMAGE_IMPORT_BY_NAME(ctypes.Structure):

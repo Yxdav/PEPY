@@ -361,15 +361,25 @@ class Imports:
             offset_to_thunk_data:int = import_desc.OriginalFirstThunk - __class__.crucial_value
             count:int = 0
             while True:
-                thunk_data:IMAGE_THUNK_DATA64 = IMAGE_THUNK_DATA64()
-                ctypes.memmove(ctypes.byref(thunk_data), ctypes.c_char_p(buffer[offset_to_thunk_data:]), ctypes.sizeof(IMAGE_THUNK_DATA64))
+                if is_64bit:
+                    thunk_data:IMAGE_THUNK_DATA64 = IMAGE_THUNK_DATA64()
+                else:
+                    thunk_data:IMAGE_THUNK_DATA32 = IMAGE_THUNK_DATA32()
+                if is_64bit:
+                    ctypes.memmove(ctypes.byref(thunk_data), ctypes.c_char_p(buffer[offset_to_thunk_data:]), ctypes.sizeof(IMAGE_THUNK_DATA64))
+                else:
+                    ctypes.memmove(ctypes.byref(thunk_data), ctypes.c_char_p(buffer[offset_to_thunk_data:]), ctypes.sizeof(IMAGE_THUNK_DATA32))
+                
                 if thunk_data.u1.AddressOfData == 0:
                     break
                 import_by_name: IMAGE_IMPORT_BY_NAME = IMAGE_IMPORT_BY_NAME()
                 ctypes.memmove(ctypes.byref(import_by_name), ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData-__class__.crucial_value:]), ctypes.sizeof(WORD))
                 import_by_name.Name = ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData -__class__.crucial_value+ctypes.sizeof(WORD):])
                 print(f"\t\t {count}".ljust(10) + f"{hex(import_by_name.Hint)}".ljust(10) + f"{import_by_name.Name.decode()}")
-                offset_to_thunk_data += ctypes.sizeof(IMAGE_THUNK_DATA64)
+                if is_64bit:
+                    offset_to_thunk_data += ctypes.sizeof(IMAGE_THUNK_DATA64)
+                else:
+                    offset_to_thunk_data += ctypes.sizeof(IMAGE_THUNK_DATA32)
                 count += 1
             print()
             print("-"*100)
