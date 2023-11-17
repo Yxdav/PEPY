@@ -296,7 +296,7 @@ class Imports:
     offset_arr:list[int] = []
 
     @staticmethod
-    def parse(section_headers:ctypes.Array[IMAGE_SECTION_HEADER], buffer:bytes)-> list[IMAGE_IMPORT_DESCRIPTOR]:
+    def parse(section_headers:ctypes.Array[IMAGE_SECTION_HEADER], buffer:bytes)-> list[IMAGE_IMPORT_DESCRIPTOR] | None:
 
         import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] = []
         import_desc_size:int = ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
@@ -309,7 +309,9 @@ class Imports:
                 __class__.rva_to_import_descriptor  = rva
                 __class__.crucial_value = rva - section_header.PointerToRawData
                 actual_offset = rva - __class__.crucial_value # Told you...
-        
+            else:
+                return None
+            
         # Determine how many IMAGE_IMPORT_DESCRITOR in .idata section
         # Essentialy the start of this section contain at least
         # one `IMAGE_IMPORT_DESCRIPTOR`, the last one has all valued nulled out.
@@ -325,7 +327,7 @@ class Imports:
             import_desc_arr.append(import_desc)
 
     @staticmethod
-    def print(import_desc_arr: list[IMAGE_IMPORT_DESCRIPTOR], buffer:bytes, is_64bit:bool)->None:
+    def print(import_desc_arr: list[IMAGE_IMPORT_DESCRIPTOR] | None, buffer:bytes, is_64bit:bool)->None:
         ''' Parses the import directory table 
         
             import_desc_arr: An array of IMAGE_IMPORT_DESCRIPTOR
@@ -335,7 +337,9 @@ class Imports:
             return: None
         '''
         
-        # Change functionality
+        if import_desc_arr is None:
+            warning("No .idata section, exiting...")
+            return None
         library_name:list[str] = []
         print(" Imports:")
         for import_desc in import_desc_arr:
@@ -481,7 +485,7 @@ def main() -> None:
 
     section_headers: ctypes.Array[IMAGE_SECTION_HEADER] = SECTION_HEADERS.parse(nt_file_headers, file_contents)
  
-    import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] = Imports.parse(section_headers, file_contents)
+    import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] | None = Imports.parse(section_headers, file_contents)
 
     base_reloc_arr:list[IMAGE_BASE_RELOCATION] = Relocation.parse(section_headers, file_contents)
 
