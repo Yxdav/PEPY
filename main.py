@@ -302,6 +302,7 @@ class Imports:
         import_desc_size:int = ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
         rva:int
         actual_offset:int
+        found:bool = False
         for section_header in section_headers:
             # Retrieve the IMAGE_SECTION_HEADER represent the .idata field
             if ("".join([chr(char) if char != 0 else ' ' for char in section_header.Name])).strip() == ".idata":
@@ -309,8 +310,9 @@ class Imports:
                 __class__.rva_to_import_descriptor  = rva
                 __class__.crucial_value = rva - section_header.PointerToRawData
                 actual_offset = rva - __class__.crucial_value # Told you...
-            else:
-                return None
+                found = True
+        if not found:
+            return None
             
         # Determine how many IMAGE_IMPORT_DESCRITOR in .idata section
         # Essentialy the start of this section contain at least
@@ -325,6 +327,24 @@ class Imports:
             if ((import_desc.OriginalFirstThunk == 0) and (import_desc.TimeDateStamp == 0) and (import_desc.ForwarderChain == 0) and ( import_desc.Name == 0) and (import_desc.FirstThunk == 0)):
                 return import_desc_arr
             import_desc_arr.append(import_desc)
+    
+    @staticmethod
+    def parse_import_dir(image_data_directory:IMAGE_DATA_DIRECTORY, buffer:bytes):
+        offset:int = image_data_directory.VirtualAddress
+        __class__.rva_to_import_descriptor  = offset
+        import_desc_size:int = ctypes.sizeof(IMAGE_IMPORT_DESCRIPTOR)
+        count:int = 0
+        import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] = []
+        while True:
+            
+            import_desc:IMAGE_IMPORT_DESCRIPTOR = IMAGE_IMPORT_DESCRIPTOR()
+            ctypes.memmove(ctypes.byref(import_desc), ctypes.c_char_p(buffer[offset+count:offset+count+import_desc_size]), import_desc_size)
+            count += import_desc_size
+            if ((import_desc.OriginalFirstThunk == 0) and (import_desc.TimeDateStamp == 0) and (import_desc.ForwarderChain == 0) and ( import_desc.Name == 0) and (import_desc.FirstThunk == 0)):
+                return import_desc_arr
+            import_desc_arr.append(import_desc)
+
+
 
     @staticmethod
     def print(import_desc_arr: list[IMAGE_IMPORT_DESCRIPTOR] | None, buffer:bytes, is_64bit:bool)->None:
@@ -343,8 +363,12 @@ class Imports:
         library_name:list[str] = []
         print(" Imports:")
         for import_desc in import_desc_arr:
-            print(f"\t RVA: {hex(__class__.rva_to_import_descriptor)}")
-            actual_offset:int = import_desc.Name - __class__.crucial_value
+            if __class__.crucial_value:
+                print(f"\t RVA: {hex(__class__.rva_to_import_descriptor)}   (File Offset: {hex(__class__.rva_to_import_descriptor-__class__.crucial_value)})")
+                actual_offset:int = import_desc.Name - __class__.crucial_value
+            else:
+                print(f"\t RVA: {hex(__class__.rva_to_import_descriptor)}   (File Offset: {hex(__class__.rva_to_import_descriptor)})")
+                actual_offset:int = import_desc.Name
             print(f"\t File Offset to name :{hex(actual_offset)}(RVA: {hex(import_desc.Name)})")
             print(f"\t Name: ", end="")
             for char in buffer[actual_offset:]:
@@ -355,14 +379,20 @@ class Imports:
                 library_name = []
                 break
             print()
+            if __class__.crucial_value:
+                print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)} (File offset: {hex(import_desc.OriginalFirstThunk - __class__.crucial_value )})")
+            else:
+                print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)} (File offset: {hex(import_desc.OriginalFirstThunk)})")
 
-            print(f"\t Import Lookup Table RVA: {hex(import_desc.OriginalFirstThunk)} (File offset: {hex(import_desc.OriginalFirstThunk - __class__.crucial_value )})")
             print(f"\t Time Date Stamp: {import_desc.TimeDateStamp}")
             print(f"\t Forwarder chain: {import_desc.ForwarderChain} ({hex(import_desc.ForwarderChain)})")
             print(f"\t Import Address Table RVA: {hex(import_desc.FirstThunk)} ({hex(import_desc.ForwarderChain)})")
             print("\t Imports:")
             print("\t\t Count".ljust(10) + "Hint".ljust(10)  + "Name")
-            offset_to_thunk_data:int = import_desc.OriginalFirstThunk - __class__.crucial_value
+            if __class__.crucial_value:
+                offset_to_thunk_data:int = import_desc.OriginalFirstThunk - __class__.crucial_value
+            else:
+                offset_to_thunk_data:int = import_desc.OriginalFirstThunk
             count:int = 0
             while True:
                 if is_64bit:
@@ -377,8 +407,12 @@ class Imports:
                 if thunk_data.u1.AddressOfData == 0:
                     break
                 import_by_name: IMAGE_IMPORT_BY_NAME = IMAGE_IMPORT_BY_NAME()
-                ctypes.memmove(ctypes.byref(import_by_name), ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData-__class__.crucial_value:]), ctypes.sizeof(WORD))
-                import_by_name.Name = ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData -__class__.crucial_value+ctypes.sizeof(WORD):])
+                if __class__.crucial_value:
+                    ctypes.memmove(ctypes.byref(import_by_name), ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData-__class__.crucial_value:]), ctypes.sizeof(WORD))
+                    import_by_name.Name = ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData -__class__.crucial_value+ctypes.sizeof(WORD):])
+                else:
+                    ctypes.memmove(ctypes.byref(import_by_name), ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData:]), ctypes.sizeof(WORD))
+                    import_by_name.Name = ctypes.c_char_p(buffer[thunk_data.u1.AddressOfData+ctypes.sizeof(WORD):])
                 print(f"\t\t {count}".ljust(10) + f"{hex(import_by_name.Hint)}".ljust(10) + f"{import_by_name.Name.decode()}")
                 if is_64bit:
                     offset_to_thunk_data += ctypes.sizeof(IMAGE_THUNK_DATA64)
@@ -486,6 +520,9 @@ def main() -> None:
     section_headers: ctypes.Array[IMAGE_SECTION_HEADER] = SECTION_HEADERS.parse(nt_file_headers, file_contents)
  
     import_desc_arr:list[IMAGE_IMPORT_DESCRIPTOR] | None = Imports.parse(section_headers, file_contents)
+    
+    if import_desc_arr is None:
+         import_desc_arr = Imports.parse_import_dir(nt_file_headers.OptionalHeader.DataDirectory[1], file_contents) 
 
     base_reloc_arr:list[IMAGE_BASE_RELOCATION] = Relocation.parse(section_headers, file_contents)
 
